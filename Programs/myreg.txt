@@ -1,0 +1,20 @@
+	(1)
+VARIABLES	OLS
+	
+exp	0.0442***
+	(0.00239)
+exp2	-0.000710***
+	(5.26e-05)
+wks	0.00575***
+	(0.00118)
+occ	-0.0812***
+	(0.0154)
+ed	0.0668***
+	(0.00282)
+Constant	5.077***
+	(0.0744)
+	
+Observations	4,165
+R-squared	0.288
+Standard errors in parentheses	
+*** p<0.01, ** p<0.05, * p<0.1	

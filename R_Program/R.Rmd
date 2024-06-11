@@ -1,0 +1,245 @@
+---
+title: "R and Stata Workshop: Using R"
+subtitle: |
+ Economic and Finance Department \
+ Brunel University London, UK
+author: "Michael Willox"
+date: "2024-06-09"
+output: pdf_document
+header-includes:
+   - \usepackage{booktabs}
+   - \usepackage{amsmath}
+---
+
+```{r setup, include=FALSE}
+library(tidyverse)
+library(plm)
+library(stargazer)
+library(broom)
+library(officer)
+library(flextable)
+library(writexl)
+library(lmtest)
+library(AER)
+library(gmm)
+library(lmtest)
+library(ivreg)
+library(knitr)
+opts_chunk$set(echo = TRUE)
+```
+
+## Setup
+
+Use $mus08psidextract.dta$ to set up panel data in R, and define panel variable $id$, and time variable $t$. Consider the following model:
+
+$$lwage_{it} = \alpha + \beta_{1}exp_{it} + \beta_{2}exp2_{it} + \beta_{3}wks_{it} + \beta_{4}ed_{it} + \mu_{i} + \epsilon_{it}$$ Summarize and describe the dataset.
+
+```{r}
+data <- haven::read_dta("../Data/mus08psidextract.dta")
+summary(data)
+glimpse(data)
+```
+
+## Questions 1. Determine if this panel data is the short or long panel.
+
+Given that the intercept term in equation 1 of the assignment is common to all units, it suggests that the model being considered is characterized by random effects, which assumes the term $u_i$ is not correlated with the regressors, $X_{it}$.
+
+Use the distinct command to count distinct values for the time and panel variables. The dataset is short because $n = 595 > T = 7$. The total number of observations, $N$, is 4165.
+
+```{r}
+distinct_ids <- n_distinct(data$id)
+distinct_times <- n_distinct(data$t)
+
+distinct_ids
+distinct_times
+```
+
+## Questions 2. Run pooled OLS, fixed effects and random effects regressions?
+
+Pooled OLS with a single intercept.
+
+```{r}
+ols_model <- lm(lwage ~ exp + exp2 + wks + ed, data = data)
+summary(ols_model)
+```
+
+Fixed effects with unit specific intercepts and unit-specific, time-invariant error term that is uncorrelated with the explanatory variables. $u_{i}$ is assumed to be correlated with the regressors, $X_{it}$.
+
+```{r}
+fe_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "within")
+summary(fe_model)
+```
+
+Random effects with single intercept and a unit specific error term (random effect), which is uncorrelated with the explanatory variables, varies across units, is constant over time for each unit and is separate from the idiosyncratic error term.
+
+```{r}
+re_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "random")
+summary(re_model)
+```
+
+## Questions 3. Does this model have multicollinearity or heteroscedasticity?
+
+Pooled OLS exhibits multicollinearity.
+
+```{r}
+vif_values <- car::vif(ols_model)
+vif_values
+```
+
+The *VIF* measures how much the variance of a regression coefficient is inflated due to multicollinearity with other predictors. A *VIF* value greater than 10 is often considered indicative of high multicollinearity, which can affect the stability and interpretation of the regression coefficients.
+
+Although the mean *VIF* of 9.90 is just below 10, the individual *VIF* values for $exp$ and $exp^2$ are of more concern. Centering variables can help reduce multicollinearity. This involves subtracting the mean of a variable from each of its values and then using this centered variable in the regression. Note that $estat vif$ does not work with $xtreg$ combined with the $fe$ or $re$ options.
+
+Here, the bar over the variable represents the centred or demeaned variable.
+
+$$\overline{lwage_{it}} = \alpha + \beta_{1}\overline{exp_{it}} + \beta_{2}\overline{exp^2_{it}} + \beta_{3}\overline{wks_{it}} + \beta_{4}\overline{ed_{it}} + \mu_{i} + \epsilon_{it}$$
+
+```{r}
+# Generate de-meaned variables
+data <- data %>%
+  mutate(across(c(exp, exp2, wks, ed), ~ . - mean(.), 
+                .names = "centered_{col}"))
+
+centered_ols_model <- lm(lwage ~ centered_exp + centered_exp2 + 
+                          centered_wks + centered_ed, data = data)
+summary(centered_ols_model)
+
+car::vif(centered_ols_model)
+```
+
+```{r}
+bptest(ols_model)
+```
+
+The result, *Prob \> chi2 = 0.9763* indicates that the null hypothesis that the residuals are homoscedastic and cannot be rejected at standard levels of statistical significance.
+
+## Questions 4. Which method is suitable for this model, pooled OLS regression or a random effects model?
+
+```{r}
+ols_model <- lm(lwage ~ exp + exp2 + wks + ed, data = data)
+fe_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "within")
+re_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "random")
+
+summary(ols_model)
+summary(fe_model)
+summary(re_model)
+```
+
+Based on the results, a random effects model appears to more suitable since the Wald chi-squared statistic (3012.45) with a p-value of 0.0000 indicates that the model is also highly significant. For the fixed effects model, the F-statistic (F(3, 3567) = 2273.74) with a p-value of 0.0000 indicates that the overall model is highly significant. Moreover, In the fixed effects model, $\rho$ = 0.9789, which indicates a high degree of correlation within groups (individuals). This suggests that there are individual-specific effects that need to be accounted for. Ignoring these effects in an OLS model (with or without robust standard errors) would lead to biased and inconsistent estimates.
+
+The suitability of a fixed or random effects model depends on whether the regressors are correlated with the error term, which is addressed in the next question.
+
+## Questions 5. Compare the random effect and the fixed effect model, which one is better?
+
+```{r}
+# Hausman test
+phtest(fe_model, re_model)
+```
+
+Based on the $\chi^2$ = 6191.43 and p-value = 0.0000, we can reject the null hypothesis that there is no correlation between the regressors and the error. This implies that,
+
+$$\mathbb{E}[\epsilon_{it} \mid X_{i1}, X_{i2}, \ldots] \neq 0.$$
+
+## Questions 6. Export the above regression results to Excel, Word or Latex. (only need to output one).
+
+Consider another model:
+
+$$lwage_{it} = \alpha + \beta_{1}exp_{it} + \beta_{2}exp^2_{it} + \beta_{3}wks_{it} + \beta_{4}ed_{it} + \beta_{5}occ_{it} + \epsilon_{it}$$ The regression results are output to an html file.
+
+
+
+```{r, warning=FALSE}
+ols_model <- lm(lwage ~ exp + exp2 + wks + ed, data = data)
+fe_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "within")
+re_model <- plm(lwage ~ exp + exp2 + wks + ed, data = data, 
+                index = c("id", "t"), model = "random")
+
+# Convert summaries to data frames
+ols_df <- tidy(ols_model)
+fe_df <- tidy(fe_model)
+re_df <- tidy(re_model)
+
+# invisible({capture.output({
+# stargazer(ols_model, fe_model, re_model, 
+#             type = "text", out = "regression_results.text")
+# })})
+
+stargazer(ols_model, fe_model, re_model, 
+            type = "text", out = "regression_results.text")
+
+# stargazer(ols_model, fe_model, re_model, 
+#             type = "latex", out = "regression_results.tex")
+# 
+# stargazer(ols_model, fe_model, re_model, 
+#             type = "html", out = "regression_results.html")
+
+```
+
+Note that using the *capture.output()* function prevents *stargazer* from displaying the latex, html, or text output that it generates in the output file rendered by R Markdown, in this case a pdf.
+
+
+## Questions 7. Consider an endogenous variable $\beta_{5}occ_{it}$, and $south_{it}$ and $fem_{it}$ as instrumental variables.
+
+Since wages likely influence occupation, there is a high probability that $occ$ is endogenous and, therefore, correlated with the error term.
+
+```{r}
+first_stage <- lm(occ ~ south + fem + exp + exp2 + wks + ed, data = data)
+summary(first_stage)
+```
+
+In the first-stage regression the endogenous variable $occ$ is regressed on the instruments $south$ and $fem$, along with any other exogenous variables. The coefficients of $south$ and $fem$ are relatively large compared to the coefficients for the other regressors and they statistically significant, which indicates that the instruments are correlated with the endogenous variable.
+
+The F-statistic for the joint significance of the instruments ($south$ and $fem$) and other exogenous variables is large and statistically significant. It is also worth noting that the R-squared value of the first-stage regression is 0.3966, which suggests that the instruments and other exogenous variables explain a substantial amount of the variation in $occ$.
+
+## Questions 8. Run 2SLS and GMM.
+
+The first estimation results are from the *ivreg()* command from the R package *AER*. The results are very close to those for Stata's *ivregress* command. R's *summary()* command allows for heteroscedastic consistent standard errors to be calculated by adding the option *vcov = vcovHC(iv_model, type = "HC1")*. Heteroscedastic and autocorrelation consistent standard errors can be calculated using the *vcov = sandwich* option.
+
+```{r}
+# 2SLS
+
+iv_model <- ivreg(lwage ~ exp + exp2 + wks + ed + occ | south + 
+                   fem + exp + exp2 + wks + ed, data = data)
+summary(iv_model)
+summary(iv_model, vcov = vcovHC(iv_model, type = "HC1"))
+summary(iv_model, vcov = sandwich)
+
+# GMM
+# Define the formula and instruments
+formula <- lwage ~ exp + exp2 + wks + ed + occ
+instruments <- ~ exp + exp2 + wks + ed + south + fem
+
+# Fit the GMM model
+gmm_model <- gmm(formula, x = instruments, data = data)
+summary(gmm_model)
+```
+
+The results for GMM and IVGMM are identical. The results for the 2SLS are nearly identical to the results from the GMM and IVGMM.
+
+## Questions 9. Test if $occ_{it}$ is endogenous or not, and examine $south_{it}$, $fem_{it}$ are valid instrumental variables.
+
+The *ivreg()* command from the *ivreg* package (not to be confused with the *ivreg()* command from the *AER* package, which will not permit one to perform a Hausman or Sargan test) does not require a second step to perform either the Hausman or Sargan tests. You only need to use the standard *summary()* command.
+
+```{r}
+iv_model <- ivreg(lwage ~ exp + exp2 + wks + ed + occ | south + 
+                   fem + exp + exp2 + wks + ed, data = data)
+
+# Overidentification test
+summary(iv_model)
+```
+
+The small p-value for the Wu-Hausman test indicates that the OLS suffers from endogeneity due to at least one regressor. However, the Sargan test indicates that the choice of the instrumental variables do not cause the model to be overidentified. You can find more information about the *ivreg()* command here, <https://cran.r-project.org/web/packages/ivreg/vignettes/Diagnostics-for-2SLS-Regression.html>
+
+## Questions 10. Store OLS, 2SLS and GMM regression results in R.
+
+```{r}
+stargazer(ols_model, iv_model, gmm_model, type = "text", 
+          keep.stat = c("n", "rsq"), star.cutoffs = c(0.05, 0.01, 0.001))
+```
+
+The *stargazer()* command stores the results in a nicely formatted text file.
