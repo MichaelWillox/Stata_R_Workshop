@@ -173,7 +173,7 @@ Consider another model:
 $$lwage_{it} = \alpha + \beta_{1}exp_{it} + \beta_{2}exp^2_{it} + \beta_{3}wks_{it} + \beta_{4}ed_{it} + \beta_{5}occ_{it} + \epsilon_{it}$$
 ```{stata}
 use "../Data/mus08psidextract.dta", clear
-cd "C:/Users/micha/MyDocuments/Brunel/Stata_R_Workshop/Programs"
+cd "C:/Users/micha/MyDocuments/Brunel/Stata_R_Workshop/Stata_Program"
 quietly regress lwage exp exp2 wks occ ed
 estimates store OLS		
 
@@ -194,7 +194,7 @@ estimate table OLS, star(.05 .01 .001) b(%7.2f)	stats(N r2_a)
 Here is the raw table of regression output after reading in the Excel file created in the previous step.
 
 ```{r}
-x <- readxl::read_xlsx("C:/Users/micha/MyDocuments/Brunel/Stata_R_Workshop/Programs/regress.xlsx")
+x <- readxl::read_xlsx("C:/Users/micha/MyDocuments/Brunel/Stata_R_Workshop/Stata_Program/regress.xlsx")
 names(x)[1] <- "variable"   # the first column needs a name
 unlink("regress.xlsx")      # cleanup the output file
 x
